@@ -1,0 +1,360 @@
+---
+title: "Shayan_Gerami_IDS472_HW3"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+date: "2024-10-06"
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,         # Show code (set to FALSE if you prefer not to display it)
+  results = 'hide',    # Hide results
+  message = FALSE,     # Suppress messages
+  warning = FALSE,     # Suppress warnings
+  error = FALSE        # Suppress errors
+)
+```
+
+# Install packages, load and import data
+
+```{r Import packages}
+
+# Import libraries
+library(dplyr)
+library(ggplot2)
+library(ISLR)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+
+```
+
+```{r Load data}
+
+# Load rename, attach and view data
+df <- read.csv("C:/Users/shaya/Downloads/Placement.csv") # Replace your path
+attach(df) # For easier access to data columns
+
+```
+
+# Data Cleaning 
+## Covering questions 1-3
+- Convert data types if needed
+- Replace  missing values
+- Handel outliers
+
+```{r Data Prep}
+# Check data structure
+str(df)
+
+# Convert characters to factor
+df <- mutate_if(df, is.character, as.factor)
+
+# Get number of N/As 
+sum(is.na(df))
+
+# Nulls are only in salary, not placed records have N/A salary so we'll replace them by 0
+df <- df %>% mutate_if(is.numeric, ~ ifelse(is.na(.), 0, .))
+
+```
+
+```{r Replace Outliers}
+
+# Function to detect outliers
+outlier_check <- function(x) {
+  
+  Q1 <- quantile(x, 0.25)
+  Q3 <- quantile(x, 0.75)
+  
+  IQR <-  Q3 - Q1
+  
+  LB <- Q1 - 1.5*IQR
+  UB <- Q3 + 1.5*IQR
+  
+  return (x < LB | x > UB)
+}
+
+# Apply the function to all numeric columns 
+outliers <- lapply(df[, sapply(df, is.numeric)], outlier_check)
+outliers # See outliers
+
+# Function to replace outliers with median
+outlier_replace <- function(x) {
+  
+  outliers <- outlier_check(x)
+  x[outliers] <- median(x)
+  
+  return(x)
+}
+
+# Apply the function to all numeric columns 
+df[, sapply(df, is.numeric)] <- lapply(df[, sapply(df, is.numeric)], outlier_replace)
+
+```
+
+# EDA
+## Covering questions 4-16
+
+```{r Q4}
+
+# Function to calculate med,mean, min, max for a given variable
+min_max_med_mean <- function(x) {
+  
+  summary <- df %>%
+    summarise(
+      mean = mean(x, na.rm = TRUE),
+      med = median(x, na.rm = TRUE),
+      min = min(x, na.rm = TRUE),
+      max = max(x, na.rm = TRUE)
+    )
+  return (summary)
+}
+
+#Apply function on desired columns 
+
+# ssc_P
+summary_ssc_P <- lapply(ssc_p, min_max_med_mean)
+summary_ssc_P # Check
+
+# hsc_P
+summary_hsc_p<- lapply(hsc_p, min_max_med_mean)
+summary_hsc_p # Check
+
+# degree_p
+summary_degree_p<- lapply(degree_p, min_max_med_mean)
+summary_degree_p # Check
+
+```
+
+```{r Q5}
+
+# Num students placed and not placed
+nrow(filter(df, status == 'Placed'))
+nrow(filter(df, status == 'Not Placed'))
+
+```
+
+```{r Q6}
+
+# Avg salary for each gender group
+avg_salary_by_gender <- df %>% group_by(gender) %>%
+  summarize(avg_salary = mean(salary))
+
+avg_salary_by_gender # Check
+
+```
+
+```{r Q7}
+
+# Create a new var is_placed (1 if placed, 0 if not)
+df <- mutate(df, is_placed = if_else(status == "Placed", 1,0))
+
+# Avg of hsc_p by placement status
+hsc_P_avg_by_status <- df %>% group_by(is_placed) %>%
+  summarize(avg_hcsp = mean(hsc_p))
+
+hsc_P_avg_by_status # Check
+
+```
+
+```{r Q8}
+
+# Avg salary among placed students by specialization
+spec_avg_salary_placed <- df %>% filter(is_placed == 1) %>%
+  group_by(specialisation) %>%
+  summarize(avg_salary = mean(salary)) %>%
+  arrange(desc(avg_salary))
+
+spec_avg_salary_placed # Check
+
+```
+
+```{r Q9}
+
+# Percentage of placed among M & F
+
+df_placed <- filter(df, is_placed == 1)
+total_placed <- nrow(df_placed)
+
+# For Male
+M_percentage <- (nrow(filter(df_placed, gender == "M")) / total_placed) * 100
+# For Female
+F_percentage <- (nrow(filter(df_placed, gender == "F")) / total_placed) * 100
+
+M_percentage # Check
+F_percentage # Check
+
+# Compare placement rates accross genders
+
+placement_rate <- group_by(df, gender) %>%
+  summarize(total = n(),
+            placed = sum(is_placed == 1),
+            placement_rate = (placed / total) * 100)
+placement_rate
+
+ggplot(placement_rate, mapping = aes(x=gender, y = placement_rate, fill=gender)) +
+  geom_bar(stat = 'identity') +
+  labs(title = 'Placement rates among genders' ,
+       x = 'Gender',
+       y = 'Placement rate')
+
+```
+
+```{r Q10}
+
+# Distribution of placement outcomes
+ggplot(df, aes(x = status, fill = status)) +
+  geom_bar() +
+  labs(title = "Distribution of Placement Outcomes",
+       x = "Placement Status",
+       y = "Count")
+
+```
+
+```{r Q11}
+# Box plot for ssc_p among placed and not placed
+ggplot(df, mapping = aes(x = status, y = ssc_p, fill = status)) +
+  geom_boxplot() +
+  labs(title='ssc_p Boxplot' , 
+       x = 'Status')
+```
+
+```{r Q12}
+
+# Distreibution of salary among placed 
+df_placed <- filter(df, is_placed == "1")
+
+ggplot(df_placed, mapping = aes(x=salary)) +
+  geom_histogram() +
+  labs(title = 'Distreibution of salary among placed students' ,
+       x = 'Salary',
+       y = 'Frequency')
+
+```
+
+```{r Q13}
+
+# hsc_p vs degree_p by status
+ggplot(df, mapping = aes(x = hsc_p, y = degree_p, color = status)) +
+  geom_point() +
+  labs(title = 'hsc_p vs degree_p colored by status',
+       x = 'hsc_p', y = 'degree_p')
+
+
+```
+
+```{r Q14}
+
+# Select numericals columns and apply cor()
+df_numeric <- select(df, where(is.numeric))
+cor(df_numeric, use = 'everything')
+
+```
+
+```{r Q15,16}
+
+# Check potentioal relationship between degree_p and salary based on cor matrix
+
+ggplot(df, mapping = aes(x = degree_p, y = salary)) +
+  geom_point() +
+  labs(title = 'degree_p vs salary',
+       x = 'degree_p', y = 'salary')
+
+ggplot(df, mapping = aes(x = ssc_p, y = is_placed)) +
+  geom_point() +
+  labs(title = 'ssc_p vs is_placed',
+       x = 'ssc_p', y = 'is_placed') #lower ssc_p leads to not getting placed
+
+ggplot(df, mapping = aes(x = hsc_p, y = is_placed)) +
+  geom_point() +
+  labs(title = 'hsc_p vs is_placed',
+       x = 'hsc_p', y = 'is_placed') #lower hsc_p leads to not getting placed
+```
+
+# Decision Tree 
+## Covering questions 17-24
+- Splitting data
+- Building model
+- Evaluation and pruning
+
+```{r Q17,18}
+
+# Split into train and test
+set.seed(421)
+index_train <- sample(1:nrow(df), size = 0.7*nrow(df))
+train <- df[index_train, ]
+test <- df[-index_train, ]
+
+# Remove salary and is_placed from train and test
+train <- select(train, -salary, -is_placed)
+test <- select(test, -salary, -is_placed)
+
+
+```
+
+
+```{r 19,20}
+
+# Build model
+tree_model <- rpart( formula = status ~ ., data = train)
+
+# Visualize tree
+print(tree_model)
+
+# Plot tree
+rpart.plot(tree_model, type = 2, extra = 'auto', fallen.leaves = TRUE)
+
+summary(tree_model)
+
+```
+
+```{r Q21}
+
+# Evaluation
+
+asRules(tree_model)
+
+y_pred <- predict(tree_model, newdata = test, type = 'class')
+y_pred
+
+```
+
+```{r Q22}
+
+# Feature importance
+feature_importance <- sort(tree_model$variable.importance, decreasing= TRUE)
+feature_importance
+
+```
+
+```{r Q23,24}
+
+# rebuild model using rpart.control 
+tree_model <- rpart( formula = status ~ ., data = train, control = rpart.control(minsplit = 10, cp = 0.001)) # Change parameters as needed
+
+# Plot tree
+rpart.plot(tree_model, type = 2, extra = 'auto', fallen.leaves = TRUE)
+
+
+```
+
+## Conclusion (questions 23,24)
+
+### Two strong rules
+
+1- ssc_p > 68 and gender = F will give 28% support and prob 1
+
+2- ssc_p < 68 and degree_p > 66 will give  15% support and prob 0.82 
+
+### Pruning parameters
+
+CP: A lower cp will allow the tree to grow larger with more splits, a higher cp will stop the tree earlier.
+
+Minsplit: sets the minimum number of observations that must exist in a node for a split to happen. Lower minsplit leads to a deeper tree with more splits.
+
+Minbucket: the minimum number of observations that a terminal node (leaf) must have. Lower minbucket means more splits.
+
+Maxdepth: Limits the maximum depth of the tree. Higher maxdepth leads to a deeper tree.
+
